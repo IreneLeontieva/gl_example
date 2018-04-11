@@ -238,7 +238,8 @@ PainterSource::PainterSource()
         mVertexSample.fill_a = 1;
         //clear transform
         mVertexSample.mat_xx = 1;
-        mVertexSample.mat_yy = 1;
+        mVertexSample.mat_yy = -1.0;
+        mVertexSample.mat_y0 = 300;
         mVertexSample._y0 =1.0;
     } catch(...) {
         if (mVAO) $->glDeleteVertexArrays(1, &mVAO);
