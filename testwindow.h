@@ -1,21 +1,29 @@
 #ifndef TESTWINDOW_H
 #define TESTWINDOW_H
 
+#include <QOpenGLWidget>
 #include <QWidget>
 #include "painter_example.h"
-class TestWindow : public QWidget
+
+class TestWindow
+        : public QOpenGLWidget
+        //: public QWidget
 {
     Q_OBJECT
 public:
     explicit TestWindow(QWidget *parent = 0);
+    ~TestWindow();
 
-    void paintEvent(QPaintEvent *event);
-    void timerEvent(QTimerEvent *event);
 private:
-    PainterExample ex;
-    int timer = -1;
-    bool wireframe = false;
+    PainterExample * ex = nullptr;
+    int timer           = -1;
+    bool wireframe      = false;
+
+    void initializeGL();
+    void paintGL();
+    void timerEvent(QTimerEvent *event);
     void keyPressEvent(QKeyEvent *event);
+   // void paintEvent(QPaintEvent *event);
 };
 
 #endif // TESTWINDOW_H

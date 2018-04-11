@@ -98,6 +98,7 @@ unsigned char sgrad[40] = {
 #define NOF(xx) (sizeof(xx)/sizeof(xx[0])/2)
 PainterExample::PainterExample()
 {
+    qDebug()<<"PainterExample constructor started";
     if (!PainterBase::beginPaint())
         throw std::runtime_error("cannot bind context");
     auto $ = PainterBase::gl();
@@ -109,7 +110,6 @@ PainterExample::PainterExample()
         mKittenTexture->setWrapMode(QOpenGLTexture::Repeat);
         mHeartTexture->setWrapMode(QOpenGLTexture::Repeat);
         mWaterTexture->setWrapMode(QOpenGLTexture::Repeat);
-        PainterBase::beginPaint();
         if (!mKittenTexture->create())
             throw std::runtime_error("failed to create kitten texture");
         if (!mHeartTexture->create())
@@ -128,14 +128,12 @@ PainterExample::PainterExample()
         qDebug()<<"failed to create PainterExample";
         throw;
     }
-    PainterBase::endPaint();
 
     PainterSource::setRGBA(1.0, 0.0, 0.2, 1.0);
     PainterSource::setPenSize(10.0, 0.0, true);
-    PainterSource::setTexture(mKittenTexture->textureId(), 0.0, 0.0, 0.13);
-    PainterSource::setPath(quad, NOF(quad), true);
-    PainterSource::fillPath();
-
+    //PainterSource::setTexture(mKittenTexture->textureId(), 0.0, 0.0, 0.13);
+    //PainterSource::setPath(quad, NOF(quad), true);
+    //PainterSource::fillPath();
 
     /* PainterSource::setPath(line, NOF(line), false);
     PainterSource::strokePath();
@@ -143,7 +141,6 @@ PainterExample::PainterExample()
     PainterSource::strokePath();
     PainterSource::setPath(join2, NOF(join2), false);
     PainterSource::strokePath();*/
-
 
     PainterSource::setPath(LetterH, NOF(LetterH), false);
     PainterSource::strokePath();
@@ -160,6 +157,9 @@ PainterExample::PainterExample()
     PainterSource::setRadialGradient(mGradTex, 320.0, 150.0, 50.0);
     PainterSource::setPath(LetterO, NOF(LetterO), true);
     PainterSource::strokePath();
+    PainterBase::endPaint();
+    qDebug()<<"PainterExample constructed";
+
 }
 PainterExample::~PainterExample()
 {
@@ -170,7 +170,8 @@ PainterExample::~PainterExample()
 }
 bool PainterExample::paint(QPainter * p, const QSize& size, bool wireframe)
 {
-    if (!PainterDestination::beginPaint(size))
+
+    /*if (!PainterDestination::beginPaint(size))
         return false;
 
     PainterSource::paint(size, wireframe);
@@ -179,6 +180,8 @@ bool PainterExample::paint(QPainter * p, const QSize& size, bool wireframe)
     QImage image = PainterDestination::image();
     if (!image.isNull())
         p->drawImage(0,0,image);
-    return !image.isNull();
+    return !image.isNull();*/
+
+    return paintOnQPainter(p, size, wireframe);
 }
 

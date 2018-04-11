@@ -1,6 +1,7 @@
 #include "painter_destination.h"
 #include <stdexcept>
 #include <QDebug>
+#include <QPainter>
 #include <GL/glu.h>
 
 PainterDestination::PainterDestination()
@@ -220,4 +221,17 @@ QImage PainterDestination::image() const {
                   mSize.height(),
                   4*mSize.width(),
                   QImage::Format_ARGB32);
+}
+bool PainterDestination::paintOnQPainter(QPainter *p, const QSize &size, bool wireframe) {
+    if (!beginPaint(size))
+        return false;
+    paint(size, wireframe);
+    endPaint();
+
+    QImage img = image();
+    if (!img.isNull()) {
+        p->drawImage(0,0,img);
+        return true;
+    }
+    return false;
 }

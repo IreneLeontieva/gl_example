@@ -8,6 +8,7 @@ public:
     PainterDestination();
     virtual ~PainterDestination();
 
+    bool paintOnQPainter(QPainter* p, const QSize& size, bool wireframe);
     bool beginPaint(const QSize& size);
     void endPaint();
     QImage image() const;

@@ -3,14 +3,12 @@
 #include <QDebug>
 
 
-#define N "\n"
-static const char * __shader_vertex =
-"fuck you nvidia!";
 
 
 PainterBase::PainterBase()
 {
     qDebug()<<"PainterBase constructor started";
+
     try {
         mOffscreen = new QOffscreenSurface();
         auto fmt = mOffscreen->format();
@@ -22,11 +20,14 @@ PainterBase::PainterBase()
         if (!mOffscreen->isValid())
             throw std::runtime_error("failed to create offscreen surface");
         mContext = new QOpenGLContext();
+
+        QOpenGLContext * c = QOpenGLContext::currentContext();
+        if (!c) c = QOpenGLContext::globalShareContext();
         mContext->setFormat(mOffscreen->format());
+        mContext->setShareContext(c);
+
         if (!mContext->create())
             throw std::runtime_error("failed to create opengl context");
-        qDebug()<<mContext->format();
-
 
         if (!mContext->makeCurrent(mOffscreen))
             throw std::runtime_error("failed to make opengl context current");
@@ -59,7 +60,6 @@ void PainterBase::endPaint()
 
 PainterBase::~PainterBase()
 {
-    qDebug()<<"deleting PainterBase";
     if (mContext)
         mContext->doneCurrent();
     delete mContext;

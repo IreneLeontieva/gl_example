@@ -29,14 +29,16 @@ SOURCES += \
     painter_destination.cpp \
     painter_source.cpp \
     testwindow.cpp \
-    painter_example.cpp
+    painter_example.cpp \
+    painter_destination_qt.cpp
 
 HEADERS += \
     painter_base.h \
     painter_destination.h \
     painter_source.h \
     testwindow.h \
-    painter_example.h
+    painter_example.h \
+    painter_destination_qt.h
 
 win32: LIBS += -lGLU32
 else: LIBS += -lGLU

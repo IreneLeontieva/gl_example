@@ -94,8 +94,8 @@ static const char * __shader_fragment =
 /*29*/    "     float jf = E2.w;"                     N
           "     float A1 = max(pf.x+pf.y,pf.z+pf.w);" N
           "     pf *= pf;"                            N
-          "     float A2 = max(sqrt(pf.x+pf.y),sqrt(pf.z+pf.w));"N
-/*30*/    "     float A= mix(A2, A1*jf, step(0.0, jf));"N
+          "     float A2 = max(sqrt(pf.x+pf.y),sqrt(pf.z+pf.w));" N
+/*30*/    "     float A= mix(A2, A1*jf, step(0.0, jf));" N
           "     A = step(A, 1.0);"
 //now it's a time to apply fill rule                  N
 //first we determine the fill direction               N
@@ -103,7 +103,7 @@ static const char * __shader_fragment =
 /*36*/    "  float ft = dot(PP,F2.xy)+F2.z;"          N
 //read from source texture                            N
 //will return RGBA(0,0,0,1) if there is no texture    N
-/*37*/    "  vec4  tx = texture(source2,vec2(fs,ft));"N
+/*37*/    "  vec4  tx = texture(source2,vec2(fs,ft));" N
 //calculate gradient parameter                        N
 /*38*/    "  float fg = sqrt(fs*fs+ft*ft);"           N
           "  fg = mix(fs,fg,F1.w);"
@@ -280,11 +280,13 @@ bool PainterSource::paint(const QSize& size, bool wireframe) {
             $->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
             mUpdated = false;
         }
+
         if (!mProgram->bind())
             return false;
         $->glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         $->glBlendEquation(GL_FUNC_ADD);
-        $->glDepthFunc(GL_GREATER);
+        $->glDepthFunc(GL_GEQUAL);
+
         if (!wireframe) {
             $->glEnable(GL_BLEND);
             $->glEnable(GL_DEPTH_TEST);
@@ -292,6 +294,7 @@ bool PainterSource::paint(const QSize& size, bool wireframe) {
         $->glEnable(GL_PRIMITIVE_RESTART);
         $->glPolygonMode(GL_FRONT_AND_BACK, wireframe ?
                              GL_LINE : GL_FILL);
+
         mProgram->setUniformValue(mPaintDPS,
                                   0.005f, 0.005f,
                                   -1.0f,
@@ -309,18 +312,6 @@ bool PainterSource::paint(const QSize& size, bool wireframe) {
                               rc.mNumIndices,
                               GL_UNSIGNED_INT,
                               (GLvoid*)(long)(rc.mFirstIndex*4));
-            /* fuck you NVidia!
-             *
-             * this function is broken on NV, just like
-             * all other glDrawElementXXXXXX
-             * Linux 4.4, x64 driver 340.102, GF210
-             *
-            $->glDrawElementsBaseVertex(GL_TRIANGLE_STRIP,
-                                        rc.mNumIndices,
-                                        GL_UNSIGNED_INT,
-                                        NULL,
-                                        rc.mFirstIndex);
-            }*/
         }
         $->glBindVertexArray(0);
         $->glDisable(GL_BLEND);

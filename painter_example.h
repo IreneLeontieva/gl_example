@@ -2,12 +2,13 @@
 
 #include "painter_base.h"
 #include "painter_destination.h"
+#include "painter_destination_qt.h"
 #include "painter_source.h"
 #include <QOpenGLTexture>
 #include <QScopedPointer>
 
 class PainterExample
-        : public PainterDestination
+        : public PainterDestinationQt
 {
 public:
     PainterExample();
