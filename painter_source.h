@@ -4,6 +4,7 @@
 #include <QByteArray>
 #include <QOpenGLShaderProgram>
 #include <GL/glu.h>
+#include "libtess2/Include/tesselator.h"
 
 struct VertexData {
     float x,   y,   z,   _0;
@@ -44,11 +45,13 @@ public:
                      float centerX, float centerY,
                      float radius);
     void setPenSize(float pen, float miter, bool rounded);
-    void setPath(const double * coords, int ncoords, bool closed);
+    void setPath(const float * coords, int ncoords, bool closed);
+    void setTransform(float x0, float y0, float angle, float scale);
     void strokePath();
     void fillPath();
 private:
-    GLUtesselator        * mTesselator = nullptr;
+    TESSalloc            * mTessAllocator = nullptr;
+    TESStesselator       * mTesselator = nullptr;
     QOpenGLShaderProgram * mProgram    = nullptr;
     GLint                  mPaintDPS  = -1;
     GLuint                 mVAO = 0;
@@ -63,8 +66,12 @@ private:
     VertexData             mVertexSample;
     QByteArray             mTessBuffer;
     int                    mPathSize = 0;
-    int                    mPathExt  = 0;
+    int                    mPath0 = 0;
     bool                   mPathClosed = false;
+    //tesselator heap
+    QByteArray             mTessHeap;
+    int                    mTessHeapBase = 0;
+    int                    mTessHeapPtr  = 0;
     //aux data for tesselator
     GLenum                 mTessType;
     int                    mTessVertexBase;
@@ -90,17 +97,8 @@ private:
     };
     QVector<RenderCommand> mRCS;
 
-
-
-    static void tessBegin(GLenum type, void *self);
-    static void tessVertex(void * vertex_data, void * self);
-    static void tessEnd(void * self);
-    static void tessCombineData(GLdouble coords[3], void *vertex_data[4],
-                                GLfloat weight[4], void **outData,
-                                void * self);
-    static void tessError(GLenum errno, void *self);
-
-
+    static void* poolAlloc( void* userData, unsigned int size );
+    static void poolFree( void* userData, void* ptr );
 };
 
 

@@ -4,21 +4,27 @@
 #include <stdexcept>
 #include <QLinearGradient>
 
-static const double line[] = {
+static const float line[] = {
     20, 20, 100, 20
 };
-static const double join1[] = {
+static const float join1[] = {
     20, 50, 60, 80, 100, 50, 140, 80
 };
-static const double join2[] = {
+static const float join2[] = {
     20, 100, 60, 280, 100, 100, 140, 280
 };
-static const double quad[] = {
-    20, 20, 100, 20,
-    100,100, 20,100
+static const float shape[] = {
+    -1, 4, 0, 2, 1, 5,
+    2, 2,  5, 4, 4, 1,
+    6, 0, 4, -1, 5, -3,
+    3, -2, 3, -5, 1, -3,
+    -1, -6, -2, -2,
+    -5, -3, -4, -1, -6, 0,
+    -4, 1, -4, 3, -2, 2
 };
 
-static const double LetterH[] = {
+
+static const float LetterH[] = {
     37,34,
     43,59,
     46,100,
@@ -38,7 +44,7 @@ static const double LetterH[] = {
     85,133,
     91,175
 };
-static const double LetterE[] = {
+static const float LetterE[] = {
     112,128,
     127,135,
     146,134,
@@ -52,7 +58,7 @@ static const double LetterE[] = {
     160,169,
     168,164
 };
-static const double LetterL[] = {
+static const float LetterL[] = {
     172,46,
     180,46,
     188,62,
@@ -61,7 +67,7 @@ static const double LetterL[] = {
     195,164,
     210,169,
 };
-static const double LetterL2[] = {
+static const float LetterL2[] = {
     218,44,
     226,53,
     230,64,
@@ -71,7 +77,7 @@ static const double LetterL2[] = {
     242,170,
     255,170
 };
-static const double LetterO[] = {
+static const float LetterO[] = {
     277,124,
     283,156,
     297,163,
@@ -129,19 +135,26 @@ PainterExample::PainterExample()
         throw;
     }
 
-    PainterSource::setRGBA(1.0, 0.0, 0.2, 1.0);
-    PainterSource::setPenSize(10.0, 0.0, true);
-    //PainterSource::setTexture(mKittenTexture->textureId(), 0.0, 0.0, 0.13);
-    //PainterSource::setPath(quad, NOF(quad), true);
-    //PainterSource::fillPath();
+    PainterSource::setPath(shape, NOF(shape), true);
 
-    /* PainterSource::setPath(line, NOF(line), false);
+    PainterSource::setTransform(200, 100, 40, 10 );
+    PainterSource::setTexture(mKittenTexture->textureId(), 0.0, 0.0, 0.13);
+    PainterSource::fillPath();
+
+    PainterSource::setPenSize(0.3, 0.0, true);
+    PainterSource::setTexture(0, 0.0, 0.0, 0.0);
+    PainterSource::setRGBA(1.0, 0.7, 0.2, 1.0);
+    PainterSource::strokePath();
+    /*PainterSource::setPath(line, NOF(line), false);
     PainterSource::strokePath();
     PainterSource::setPath(join1, NOF(join1), false);
     PainterSource::strokePath();
     PainterSource::setPath(join2, NOF(join2), false);
     PainterSource::strokePath();*/
 
+    PainterSource::setTransform(0, 400, 0, 1);
+    PainterSource::setRGBA(1.0, 0.0, 0.2, 1.0);
+    PainterSource::setPenSize(15.0, 0.0, true);
     PainterSource::setPath(LetterH, NOF(LetterH), false);
     PainterSource::strokePath();
     PainterSource::setTexture(mWaterTexture->textureId(), 0.0, 0.0, 0.13);

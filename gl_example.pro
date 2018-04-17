@@ -42,6 +42,7 @@ HEADERS += \
 
 win32: LIBS += -lGLU32
 else: LIBS += -lGLU
+LIBS += $$PWD/libtess2/Build/libtess2.a
 
 RESOURCES += \
     resources.qrc

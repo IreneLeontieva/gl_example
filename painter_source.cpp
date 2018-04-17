@@ -218,21 +218,23 @@ PainterSource::PainterSource()
         mIndices.reserve(IBO_SIZE);
         mTessBuffer.reserve(VBO_SIZE);
 
-        mTesselator = gluNewTess();
+        mTessHeap.resize(1024*256);
+        mTessAllocator = new TESSalloc;
+        if (!mTessAllocator)
+            throw std::bad_alloc();
+        memset(mTessAllocator, 0, sizeof(TESSalloc));
+        mTessAllocator->userData = this;
+        mTessAllocator->memalloc = poolAlloc;
+        mTessAllocator->memfree  = poolFree;
+        mTessAllocator->extraVertices = 256;
+
+        mTessHeapPtr = 0;
+        mTesselator = tessNewTess(mTessAllocator);
         if (!mTesselator)
             throw std::bad_alloc();
-        gluTessProperty(mTesselator, GLU_TESS_WINDING_RULE, GLU_TESS_WINDING_NONZERO);
-        gluTessCallback(mTesselator, GLU_TESS_BEGIN_DATA,
-                        (GLU_CALLBACK_T)tessBegin);
-        gluTessCallback(mTesselator, GLU_TESS_VERTEX_DATA,
-                        (GLU_CALLBACK_T)tessVertex);
-        gluTessCallback(mTesselator, GLU_TESS_COMBINE_DATA,
-                        (GLU_CALLBACK_T)tessCombineData);
-        gluTessCallback(mTesselator, GLU_TESS_END_DATA,
-                        (GLU_CALLBACK_T)tessEnd);
-        gluTessCallback(mTesselator, GLU_TESS_ERROR_DATA,
-                        (GLU_CALLBACK_T)tessError);
+        mTessHeapBase = mTessHeapPtr;
 
+        tessSetOption(mTesselator, TESS_CONSTRAINED_DELAUNAY_TRIANGULATION, 0);
         memset(&mVertexSample, 0, sizeof(mVertexSample));
         //clear color
         mVertexSample.fill_a = 1;
@@ -245,9 +247,11 @@ PainterSource::PainterSource()
         if (mVAO) $->glDeleteVertexArrays(1, &mVAO);
         if (mVBO) $->glDeleteBuffers(1, &mVBO);
         if (mIBO) $->glDeleteBuffers(1, &mIBO);
-        if (mTesselator)
-            gluDeleteTess(mTesselator);
         delete mProgram;
+        if (mTesselator)
+            tessDeleteTess(mTesselator);
+        if (mTessAllocator)
+            delete mTessAllocator;
         throw;
     }
     PainterBase::endPaint();
@@ -260,9 +264,11 @@ PainterSource::~PainterSource()
     if (mVAO) $->glDeleteVertexArrays(1, &mVAO);
     if (mVBO) $->glDeleteBuffers(1, &mVBO);
     if (mIBO) $->glDeleteBuffers(1, &mIBO);
-    if (mTesselator)
-        gluDeleteTess(mTesselator);
     delete mProgram;
+    if (mTesselator)
+        tessDeleteTess(mTesselator);
+    if (mTessAllocator)
+        delete mTessAllocator;
     PainterBase::endPaint();
 }
 bool PainterSource::paint(const QSize& size, bool wireframe) {
@@ -329,31 +335,41 @@ void PainterSource::clear() {
     mDepthIndex = 0.0f;
     mUpdated = true;
 }
-void PainterSource::setPath(const double *coords, int ncoords, bool closed) {
+void PainterSource::setTransform(float x0, float y0, float angle, float scale) {
+    float C = cos(M_PI*angle/180.0f);
+    float S = sin(M_PI*angle/180.0f);
+
+    mVertexSample.mat_x0 = x0;
+    mVertexSample.mat_y0 = y0;
+    mVertexSample.mat_xx = scale*C;
+    mVertexSample.mat_xy = scale*S;
+    mVertexSample.mat_yx = scale*S;
+    mVertexSample.mat_yy =-scale*C;
+}
+
+void PainterSource::setPath(const float *coords, int ncoords, bool closed) {
     mTessBuffer.clear();
     mPathSize   = ncoords;
-    mPathExt    = ncoords;
     mPathClosed = closed;
 
-    mTessBuffer.resize(3*ncoords*2*sizeof(double));
+    mTessBuffer.resize(ncoords*2*sizeof(float));
     mTessBuffer.detach();
-    double * dst = (double*)mTessBuffer.data();
+    float * dst = (float*)mTessBuffer.data();
     for(int i = 0; i < ncoords; ++i) {
-        dst[3*i]   = coords[2*i];
-        dst[3*i+1] = coords[2*i+1];
-        dst[3*i+2] = coords[2*i];
+        dst[2*i]   = coords[2*i];
+        dst[2*i+1] = coords[2*i+1];
     }
 }
 
 
-static inline double TURN(double dx1, double dy1, double dx2, double dy2, double miter) {
-    double d = dx2*dy1-dx1*dy2;
+static inline float TURN(float dx1, float dy1, float dx2, float dy2, float miter) {
+    float d = dx2*dy1-dx1*dy2;
     if (d == 0.0) d = 1.0;
     return std::copysign(2.0+miter, d);
 }
-static inline bool EXTENT(double &ox, double &oy,
-                          double dx1, double dy1,
-                          double dx2, double dy2)
+static inline bool EXTENT(float &ox, float &oy,
+                          float dx1, float dy1,
+                          float dx2, float dy2)
 {
     /*
      * let A = (dx1,dy1);
@@ -383,16 +399,20 @@ static inline bool EXTENT(double &ox, double &oy,
      * worst case scenario is U-turn in path
      * we detect it by negatic c which is cos(phi)
      */
-    double c = dx1*dx2+dy1*dy2;
-    double f = c < 0.0 ? -1.0 : 1.0;
+    float c = dx1*dx2+dy1*dy2;
+    float f = c < 0.0 ? -1.0 : 1.0;
     //FIXME: handle this case better
-    double k = 1.0/(1.0+fabs(c));
-    double avx = dx1 + dx2*f;
-    double avy = dy1 + dy2*f;
+    float k = 1.0/(1.0+fabs(c));
+    float avx = dx1 + dx2*f;
+    float avy = dy1 + dy2*f;
     ox = avx*k;
     oy = avy*k;
     return (c < 0.0);
 }
+#define EMIT_VERTEX0(v) \
+    {\
+        mVertices.append((const char*)&v, sizeof(v)); \
+    }
 #define EMIT_VERTEX(v, n) \
     {\
         int val = n;\
@@ -403,13 +423,9 @@ static inline bool EXTENT(double &ox, double &oy,
 
 void PainterSource::strokePath() {
     if (mPathSize < 2) return;
-    assert(mPathExt >= mPathSize);
-    assert(uint(mTessBuffer.size()) >= mPathExt*3*sizeof(double));
 
     mVertexSample.z = mDepthIndex;
     mDepthIndex += DEPTH_INCREMENT;
-
-
 
     //save info for case of error
     mTessBroken     = false;
@@ -418,21 +434,21 @@ void PainterSource::strokePath() {
     bool  reallyClosed = mPathClosed & (mPathSize > 2);
     int   indexCount   = mVertices.size()/sizeof(mVertexSample);
 
-    const double * src = (const double*)mTessBuffer.data();
-    const double * A, * B, * C, * D, * M;
+    const float * src = (const float*)mTessBuffer.data();
+    const float * A, * B, * C, * D, * M;
 
-    A = nullptr; B = src; C = src+3; D = nullptr;
-    M = src + mPathSize*3;
+    A = nullptr; B = src; C = src+2; D = nullptr;
+    M = src + mPathSize*2;
 
     if (mPathSize > 2)
-        D = src+6;
+        D = src+4;
 
     //create initial 2 vertices as for disjoint line
-    double dax,day,dal;
-    double ddx,ddy,ddl;
-    double dx = C[0] - B[0];
-    double dy = C[1] - B[1];
-    double dl  = sqrt(dx*dx+dy*dy);
+    float dax,day,dal;
+    float ddx,ddy,ddl;
+    float dx = C[0] - B[0];
+    float dy = C[1] - B[1];
+    float dl  = sqrt(dx*dx+dy*dy);
     if (dl < 0.00001) {
         dx = 1.0;
         dy = 0.0;
@@ -457,7 +473,7 @@ void PainterSource::strokePath() {
     mVertexSample.e3z = (-C[0]*dx-C[1]*dy)*wc;
     mVertexSample.e3w = 0.0;
     if (reallyClosed) {
-        A = M-3;
+        A = M-2;
         dax = B[0] - A[0];
         day = B[1] - A[1];
         dal  = sqrt(dax*dax+day*day);
@@ -495,7 +511,7 @@ void PainterSource::strokePath() {
             mVertexSample.e3w = TURN(dx,dy,ddx,ddy,mMiter);
         }
         //emit vertex
-        double offset_x, offset_y, k;
+        float offset_x, offset_y, k;
         if (first) {
             //extent status does not matter here, because we
             //at start of the line
@@ -568,7 +584,7 @@ void PainterSource::strokePath() {
         mVertexSample.e2y = mVertexSample.e3y;
         mVertexSample.e2z = mVertexSample.e3z;
         //check if there is a next vertex
-        D  += 3;
+        D  += 2;
         if (D < M) continue;
 
         if (!reallyClosed) {
@@ -594,38 +610,69 @@ void PainterSource::strokePath() {
 void PainterSource::fillPath() {
     if (!mPathClosed) return;
     if (mPathSize < 3) return;
-    assert(mPathExt >= mPathSize);
-    assert(uint(mTessBuffer.size()) >= mPathExt*3*sizeof(double));
+    assert(uint(mTessBuffer.size()) >= mPathSize*2*sizeof(float));
+    assert(mTessBuffer.isDetached());
+    //reset pool
+    mTessHeapPtr = mTessHeapBase;
+    tessReset(mTesselator);
 
-    mVertexSample.z = mDepthIndex;
-    mDepthIndex += DEPTH_INCREMENT;
-    //save info for case of error
-    mTessBroken     = false;
+    mVertexSample.z = mDepthIndex; mDepthIndex += DEPTH_INCREMENT; //save info
+    mTessBroken = false;
     mTessFirstIndex = mIndices.size();
-    mTessFirstVertex= mVertices.size();
-    //disable stroking
-    mVertexSample.e1x = mVertexSample.e1y = mVertexSample.e1z = mVertexSample.e1w = 0.0f;
-    mVertexSample.e2x = mVertexSample.e2y = mVertexSample.e2z = mVertexSample.e2w = 0.0f;
-    mVertexSample.e3x = mVertexSample.e3y = mVertexSample.e3z = mVertexSample.e3w = 0.0f;
+    mTessFirstVertex= mVertices.size(); //disable stroking mVertexSample.e1x =
+    mVertexSample.e1y = mVertexSample.e1z = mVertexSample.e1w = 0.0f;
+    mVertexSample.e2x = mVertexSample.e2y = mVertexSample.e2z =
+    mVertexSample.e2w = 0.0f; mVertexSample.e3x = mVertexSample.e3y =
+    mVertexSample.e3z = mVertexSample.e3w = 0.0f;
+    //remember base vertex
+    int basevertex = mVertices.size()/sizeof(mVertexSample);
 
-    double * dst = (double*)mTessBuffer.data();
-    gluTessBeginPolygon(mTesselator, this);
-    gluTessBeginContour(mTesselator);
-    for(int i = 0; i < mPathSize; ++i) {
-        qDebug("vertex in %f %f", dst[i*3], dst[i*3+1]);
-        gluTessVertex(mTesselator,
-                      dst+i*3,
-                      this);
+    float * dst = (float*)mTessBuffer.data();
+    tessAddContour(mTesselator, 2, dst, sizeof(float)*2, mPathSize);
+    if (!tessTesselate(mTesselator, TESS_WINDING_POSITIVE, TESS_POLYGONS,
+                       4/*quads or triangles*/, 2/*(x,y) pairs*/, nullptr))
+        return;//fail
+
+    const float * vertices = tessGetVertices(mTesselator);
+    int           vxcount  = tessGetVertexCount(mTesselator);
+    for(int n = 0; n < vxcount; ++n) {
+        mVertexSample.x = vertices[2*n];
+        mVertexSample.y = vertices[2*n+1];
+        EMIT_VERTEX0(mVertexSample);
     }
-    gluTessEndContour(mTesselator);
-    gluTessEndPolygon(mTesselator);
 
+    //const int   * indices  = tessGetVertexIndices(mTesselator);
+    const int   * elements = tessGetElements(mTesselator);
+    int           elcount  = tessGetElementCount(mTesselator);
+    //     const int nelems = tessGetElementCount(tess);
+    //     const TESSindex* elems = tessGetElements(tess);
+    //     for (int i = 0; i < nelems; i++) {
+    //         const TESSindex* poly = &elems[i * polySize];
+    //         glBegin(GL_POLYGON);
+    //         for (int j = 0; j < polySize; j++) {
+    //             if (poly[j] == TESS_UNDEF) break;
+    //             glVertex2fv(&verts[poly[j]*vertexSize]);
+    //         }
+    //         glEnd();
+    //     }
+    for(int n = 0; n < elcount; ++n) {
+        const int * poly = elements+n*4;
+
+        int indices[5];
+        //this is not a misprint!
+        indices[1] = (poly[0] == TESS_UNDEF) ? int(PRIM_RESTART) : (poly[0] + basevertex);
+        indices[0] = (poly[1] == TESS_UNDEF) ? int(PRIM_RESTART) : (poly[1] + basevertex);
+        indices[2] = (poly[2] == TESS_UNDEF) ? int(PRIM_RESTART) : (poly[2] + basevertex);
+        indices[3] = (poly[3] == TESS_UNDEF) ? int(PRIM_RESTART) : (poly[3] + basevertex);
+        indices[4] = PRIM_RESTART;
+        int k = indices[3] == PRIM_RESTART ? 4:5;
+        mIndices.append((const char*)indices, k*sizeof(int));
+    }
     if (mTessBroken) {
         mIndices.resize(mTessFirstIndex);
         mVertices.resize(mTessFirstVertex);
     } else {
         insertRCS(mTessFirstIndex);
-        mVertices.resize(mTessFirstVertex);
     }
 }
 //====utility functions=============================
@@ -635,7 +682,7 @@ void PainterSource::insertRCS(int prev) {
     int extra_restart = PRIM_RESTART;
     mIndices.append((const char*)&extra_restart, sizeof(extra_restart));
     mUpdated = true;
-    /*do {//check if RCS can be combined
+    do {//check if RCS can be combined
         if (mRCS.isEmpty())
             break;
         auto last = mRCS.last();
@@ -645,121 +692,13 @@ void PainterSource::insertRCS(int prev) {
         mRCS.last().mNumIndices = 1+ni/4-mRCS.last().mFirstIndex;
 
         return;
-    } while(0);*/
+    } while(0);
     RenderCommand rc;
     rc.mFirstIndex = prev/4;
     rc.mNumIndices = (ni - prev)/4;
     rc.mTex1 = mTex1;
     rc.mTex2 = mTex2;
     mRCS.append(rc);
-}
-//====tesselator=================================
-void PainterSource::tessBegin(GLenum type, void *self) {
-    PainterSource * p = (PainterSource*)self;
-    if (p->mTessBroken) return;
-    p->mTessType        = type;
-    p->mTessVertexBase  = p->mVertices.size()/
-                          sizeof(VertexData);
-    p->mTessVertexCount = 0;
-    qDebug("tessBegin %s", type == GL_TRIANGLE_FAN ? "fan" :
-                           type == GL_TRIANGLE_STRIP ? "strip" :
-                                                       "other");
-}
-void PainterSource::tessVertex(void *vertex_data, void *self) {
-    PainterSource * p = (PainterSource*)self;
-    if (p->mTessBroken) return;
-
-    double * v = (double*)vertex_data;
-    p->mVertexSample.x = v[0];
-    p->mVertexSample.y = v[1];
-    p->mVertices.append((const char*)&p->mVertexSample,
-                        sizeof(VertexData));
-    ++p->mTessVertexCount;
-
-    if (p->mTessBuffer.data() < (char*)vertex_data)
-        qDebug("vertex below");
-    if (p->mTessBuffer.data()+p->mTessBuffer.size() >= (char*)vertex_data)
-        qDebug("vertex above");
-
-    qDebug("tessVertex %f %f %f", v[0], v[1], v[2]);
-}
-void PainterSource::tessEnd(void *self) {
-    PainterSource * p = (PainterSource*)self;
-    if (p->mTessBroken) return;
-
-    int i, j, k;
-    int n = p->mTessVertexBase;
-    int more = 1;
-    if (p->mTessType == GL_TRIANGLES)
-        more = 4*p->mTessVertexCount/3;
-
-    int * buf = (int*)malloc(sizeof(int)*(p->mTessVertexCount+more));
-    if (!buf) {
-        p->mTessBroken = true;
-        return;
-    }
-    qDebug("tessEnd");
-
-    switch(p->mTessType) {
-    case GL_TRIANGLES:
-        for(i = 0; i+2 < p->mTessVertexCount; i+=3) {
-            buf[4*i]   = n+3*i;
-            buf[4*i+1] = n+3*i+1;
-            buf[4*i+2] = n+3*i+2;
-            buf[4*i+3] = PRIM_RESTART;
-        }
-        break;
-    case GL_TRIANGLE_FAN:
-        buf[0] = n;
-        i = 1; j = 1; k = p->mTessVertexCount-1;
-        do {
-            buf[i++] = j++;
-            buf[i++] = k--;
-        } while(j < k);
-        if (j == k)
-            buf[i++] = j;
-        buf[i] = PRIM_RESTART;
-        break;
-    case GL_TRIANGLE_STRIP:
-        for(i = 0; i < p->mTessVertexCount; i++)
-            buf[i] = n+i;
-        buf[n+p->mTessVertexCount] = PRIM_RESTART;
-        break;
-    default:
-        free(buf);
-        return;
-    }
-    p->mIndices.append((const char*)buf,
-                       sizeof(int)*(p->mTessVertexCount+more));
-    free(buf);
-}
-void PainterSource::tessError(GLenum *__errno_location(), void *self) {
-    Q_UNUSED(__errno_location);
-    PainterSource * p = (PainterSource*)self;
-    p->mTessBroken = true;
-    p->mVertices.resize(p->mTessFirstVertex);
-    p->mIndices.resize(p->mTessFirstIndex);
-    qDebug("tessEnd");
-
-}
-void PainterSource::tessCombineData(GLdouble coords[],
-                              void *vertex_data[],
-                              GLfloat weight[],
-                              void **outData,
-                              void *self)
-{
-    Q_UNUSED(vertex_data);
-    Q_UNUSED(weight);
-    PainterSource * p = (PainterSource*)self;
-    double * cd = (double*)p->mTessBuffer.data();
-    int n = p->mPathExt;
-    assert((3*n+3)*sizeof(double) < uint(p->mTessBuffer.size()));
-    cd[n+0] = coords[0];
-    cd[n+1] = coords[1];
-    cd[n+2] = coords[2];
-    *outData = cd+n;
-    p->mPathExt++;
-    qDebug("tessCombine!");
 }
 void PainterSource::setLinearGradient(GLuint gtexture,
                                      float startX,
@@ -861,7 +800,7 @@ void PainterSource::setRGBA(float r, float g, float b, float a)
 }
 void PainterSource::setPenSize(float pen, float miter, bool rounded)
 {
-    mPenW  = qMax(1.0f, pen*0.5f);
+    mPenW  = qMax(0.01f, pen*0.5f);
     mMiter = qBound(0.0f, miter, 1.0f);
     mRounded = rounded;
 }
@@ -872,4 +811,23 @@ static QString __vertex() {
 
 static QString __fragment() {
     return QString::fromLatin1(__shader_fragment);
+}
+
+void* PainterSource::poolAlloc( void* userData, unsigned int size )
+{
+    PainterSource * ps = (PainterSource*)userData;
+    auto newPtr = (ps->mTessHeapPtr + 7) &~ 7;
+
+    if (newPtr+int(size) > ps->mTessHeap.size()) {
+        return 0;
+    }
+
+    void * ret = ps->mTessHeap.data()+newPtr;
+    ps->mTessHeapPtr = newPtr+int(size);
+    return ret;
+}
+void PainterSource::poolFree( void* userData, void* ptr )
+{
+    TESS_NOTUSED(userData);
+    TESS_NOTUSED(ptr);
 }
